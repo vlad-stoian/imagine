@@ -11,6 +11,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/awalterschulze/gographviz"
+
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -96,21 +98,21 @@ func extractJobManifest(header *tar.Header, reader *tar.Reader) (ReleaseJobManif
 	return jobManifest, fmt.Errorf("Did not find 'job.MF' file instead '%s'", header.Name)
 }
 
-func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
+func exploreReleaseMetadata(releasePath string) (ReleaseMetadata, error) {
+	releaseMetadata := ReleaseMetadata{}
+
 	releaseFile, err := os.Open(releasePath)
 	if err != nil {
-		return nil, err
+		return releaseMetadata, err
 	}
 	defer releaseFile.Close()
 
 	gzipReader, err := gzip.NewReader(releaseFile)
 	if err != nil {
-		return nil, err
+		return releaseMetadata, err
 	}
 
 	tarReader := tar.NewReader(gzipReader)
-
-	releaseMetadata := &ReleaseMetadata{}
 
 	for true {
 		tarHeader, err := tarReader.Next()
@@ -120,7 +122,7 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 		}
 
 		if err != nil {
-			return nil, err
+			return releaseMetadata, err
 		}
 
 		if tarHeader.Typeflag != tar.TypeReg {
@@ -130,7 +132,7 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 		if tarHeader.Name == "./release.MF" {
 			releaseManifest, err := unmarshalReleaseManifest(tarHeader, tarReader)
 			if err != nil {
-				return nil, err
+				return releaseMetadata, err
 			}
 
 			releaseMetadata.Manifest = releaseManifest
@@ -153,13 +155,56 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 
 			releaseJobManifest, err := extractJobManifest(tarHeader, tarReader)
 			if err != nil {
-				return nil, err
+				return releaseMetadata, err
 			}
 			releaseMetadata.JobManifests = append(releaseMetadata.JobManifests, releaseJobManifest)
 		}
 	}
 
 	return releaseMetadata, nil
+}
+
+func createSubGraph(graph *gographviz.Escape, subGraphName string, releaseFiles []ReleaseFile) {
+	defaultNodeAttrs := map[string]string{
+		"shape": "record",
+		"style": "rounded",
+	}
+
+	defaultSubGraphAttrs := map[string]string{
+		"rank":  "same",
+		"label": subGraphName,
+		"color": "blue",
+		"style": "rounded",
+	}
+
+	clusterName := fmt.Sprintf("cluster_%s", subGraphName)
+	_ = graph.AddSubGraph(graph.Name, clusterName, defaultSubGraphAttrs)
+
+	for _, releaseFile := range releaseFiles {
+		_ = graph.AddNode(clusterName, releaseFile.Name(), defaultNodeAttrs)
+		_ = graph.AddNode(clusterName, releaseFile.Name(), map[string]string{
+			"label": fmt.Sprintf("%s | %s", releaseFile.Name(), releaseFile.HumanReadableSize()),
+		})
+	}
+}
+
+func createCrazyGraph(releaseMetadata ReleaseMetadata) string {
+	releaseName := releaseMetadata.Manifest.Name
+
+	// defaultGraphAttrs := map[string]string{
+	// 	"rankdir":   "LR",
+	// 	"nodeshape": "record",
+	// }
+
+	graph := gographviz.NewEscape()
+	_ = graph.SetName(releaseName)
+	_ = graph.AddAttr(releaseName, "rankdir", "LR")
+	_ = graph.AddAttr(releaseName, "shape", "record")
+
+	createSubGraph(graph, "packages", releaseMetadata.PackageFiles)
+	createSubGraph(graph, "jobs", releaseMetadata.JobFiles)
+
+	return graph.String()
 }
 
 func main() {
@@ -175,43 +220,20 @@ func main() {
 		panic(err)
 	}
 
-	releaseYAML, err := yaml.Marshal(releaseMetadata)
-
-	fmt.Println(string(releaseYAML))
-
-	for _, jrf := range releaseMetadata.JobFiles {
-		fmt.Printf("%s\n", jrf.Name())
-		fmt.Printf("%s\n", jrf.HumanReadableSize())
-	}
-	for _, prf := range releaseMetadata.PackageFiles {
-		fmt.Printf("%s\n", prf.Name())
-		fmt.Printf("%s\n", prf.HumanReadableSize())
-	}
-}
-
-func (rm ReleaseManifest) printPackages() {
-	fmt.Printf("digraph packages {\n")
-	var allNodes []string
-	for _, pkg := range rm.Packages {
-		allNodes = append(allNodes, pkg.Name)
-		if len(pkg.Dependencies) > 0 {
-			fmt.Printf("  \"%s\" -> { \"%s\" }\n", pkg.Name, strings.Join(pkg.Dependencies, "\" \""))
-		}
-	}
-	fmt.Printf("{ rank=same; \"%s\"}\n", strings.Join(allNodes, "\"; \""))
-	fmt.Printf("\"%s\"\n", strings.Join(allNodes, "\" -> \""))
-	fmt.Printf("}\n")
+	crazyGraph := createCrazyGraph(releaseMetadata)
+	fmt.Println(crazyGraph)
 }
 
 type ReleaseMetadata struct {
-	Manifest     ReleaseManifest
-	PackageFiles []ReleaseFile
-	JobFiles     []ReleaseFile
-	JobManifests []ReleaseJobManifest
+	Manifest     ReleaseManifest      `yaml:"manifest"`
+	PackageFiles []ReleaseFile        `yaml:"package_files"`
+	JobFiles     []ReleaseFile        `yaml:"job_files"`
+	JobManifests []ReleaseJobManifest `yaml:"job_manifests"`
 }
 
 // <release.MF>
 type ReleaseManifest struct {
+	Name     string                   `yaml:"name"`
 	Packages []ReleaseManifestPackage `yaml:"packages"`
 	Jobs     []ReleaseManifestJob     `yaml:"jobs"`
 }

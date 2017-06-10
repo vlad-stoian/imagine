@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/awalterschulze/gographviz"
+  packages = [".","ast","internal/errors","internal/lexer","internal/parser","internal/token"]
+  revision = "c84395e536e1a1199093a4e6253d1bee99e4cd2a"
+  version = "v2.0"
+
+[[projects]]
   branch = "v2"
   name = "gopkg.in/yaml.v2"
   packages = ["."]
@@ -10,6 +16,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c39e9119cc91080f9178c39214d6ca06156205351dec2523319554ee3669537e"
+  inputs-digest = "69e336af8093df90a46d401170534994be3b6286a0a11d438ad8801832490c72"
   solver-name = "gps-cdcl"
   solver-version = 1
