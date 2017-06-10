@@ -17,29 +17,51 @@ func main() {
 	flag.Parse()
 
 	if _, err := os.Stat(*filePath); os.IsNotExist(err) {
-		fmt.Println("File does not exist!")
-		os.Exit(1)
+		panic(fmt.Errorf("File '%s' does not exist!", *filePath))
 	}
 
-	exploreRelease(*filePath)
+	releaseMetadata, err := exploreReleaseMetadata(*filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	releaseYAML, err := yaml.Marshal(releaseMetadata)
+
+	fmt.Println(string(releaseYAML))
 }
 
-func exploreRelease(releasePath string) {
+func extractReleaseManifest(header *tar.Header, reader *tar.Reader) (ReleaseManifest, error) {
+	releaseManifest := ReleaseManifest{}
 
-	f, err := os.Open(releasePath)
+	data := make([]byte, header.Size)
+	_, err := reader.Read(data)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer f.Close()
-
-	gzf, err := gzip.NewReader(f)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return releaseManifest, fmt.Errorf("Error reading 'release.MF'")
 	}
 
-	tarReader := tar.NewReader(gzf)
+	err = yaml.Unmarshal(data, &releaseManifest)
+	if err != nil {
+		return releaseManifest, fmt.Errorf("Error unmarshaling 'release.MF'")
+	}
+
+	return releaseManifest, nil
+}
+
+func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
+	releaseFile, err := os.Open(releasePath)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseFile.Close()
+
+	releaseFileGZip, err := gzip.NewReader(releaseFile)
+	if err != nil {
+		return nil, err
+	}
+
+	tarReader := tar.NewReader(releaseFileGZip)
+
+	releaseMetadata := &ReleaseMetadata{}
 
 	for true {
 		header, err := tarReader.Next()
@@ -49,36 +71,40 @@ func exploreRelease(releasePath string) {
 		}
 
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return nil, err
 		}
 
-		name := header.Name
-		// typeFlag := header.Typeflag
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
 
-		if name == "./release.MF" {
-			data := make([]byte, header.Size)
-			_, err := tarReader.Read(data)
+		if header.Name == "./release.MF" {
+			releaseManifest, err := extractReleaseManifest(header, tarReader)
 			if err != nil {
-				panic("Error reading release.MF")
+				return nil, err
 			}
 
-			releaseManifest := ReleaseManifest{}
-
-			_ = yaml.Unmarshal(data, &releaseManifest)
-
-			releaseManifest.printPackages()
+			releaseMetadata.Manifest = releaseManifest
 		}
 
-		// switch typeFlag {
-		// case tar.TypeDir:
-		// 	fmt.Println("Dir: ", name)
-		// case tar.TypeReg:
-		// 	fmt.Println("File: ", name)
-		// default:
-		// 	fmt.Println("Unknown File Type")
-		// }
+		if strings.HasPrefix(header.Name, "./packages") {
+			packageFile := ReleaseFile{
+				Path: header.Name,
+				Size: header.Size,
+			}
+			releaseMetadata.PackageFiles = append(releaseMetadata.PackageFiles, packageFile)
+		}
+
+		if strings.HasPrefix(header.Name, "./jobs") {
+			jobFile := ReleaseFile{
+				Path: header.Name,
+				Size: header.Size,
+			}
+			releaseMetadata.JobFiles = append(releaseMetadata.JobFiles, jobFile)
+		}
 	}
+
+	return releaseMetadata, nil
 }
 
 func (rm ReleaseManifest) printPackages() {
@@ -95,13 +121,42 @@ func (rm ReleaseManifest) printPackages() {
 	fmt.Printf("}\n")
 }
 
+type ReleaseMetadata struct {
+	Manifest     ReleaseManifest
+	PackageFiles []ReleaseFile
+	JobFiles     []ReleaseFile
+	JobManifests []ReleaseJobManifest
+}
+
+// <release.MF>
+type ReleaseManifest struct {
+	Packages []ReleaseManifestPackage `yaml:"packages"`
+	Jobs     []ReleaseManifestJob     `yaml:"jobs"`
+}
+
 type ReleaseManifestPackage struct {
 	Name         string   `yaml:"name"`
-	SHA1         string   `yaml:"sha"`
+	SHA1         string   `yaml:"sha1"`
+	Fingerprint  string   `yaml:"fingerprint"`
 	Version      string   `yaml:"version"`
 	Dependencies []string `yaml:"dependencies"`
 }
 
-type ReleaseManifest struct {
-	Packages []ReleaseManifestPackage `yaml:"packages"`
+type ReleaseManifestJob struct {
+	Name        string `yaml:"name"`
+	SHA1        string `yaml:"sha1"`
+	Fingerprint string `yaml:"fingerprint"`
+	Version     string `yaml:"version"`
+}
+
+// </release.MF>
+
+type ReleaseJobManifest struct {
+	Name     string   `yaml:"name"`
+	Packages []string `yaml:"packages"`
+}
+
+type ReleaseFile struct {
+	Path string
+	Size int64
 }
