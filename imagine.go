@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"flag"
 	"fmt"
@@ -30,11 +31,11 @@ func main() {
 	fmt.Println(string(releaseYAML))
 }
 
-func extractReleaseManifest(header *tar.Header, reader *tar.Reader) (ReleaseManifest, error) {
+func unmarshalReleaseManifest(header *tar.Header, reader *tar.Reader) (ReleaseManifest, error) {
 	releaseManifest := ReleaseManifest{}
 
 	data := make([]byte, header.Size)
-	_, err := reader.Read(data)
+	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return releaseManifest, fmt.Errorf("Error reading 'release.MF'")
 	}
@@ -47,6 +48,71 @@ func extractReleaseManifest(header *tar.Header, reader *tar.Reader) (ReleaseMani
 	return releaseManifest, nil
 }
 
+func unmarshalJobManifest(header *tar.Header, reader *tar.Reader) (ReleaseJobManifest, error) {
+	jobManifest := ReleaseJobManifest{}
+
+	data := make([]byte, header.Size)
+	_, err := io.ReadFull(reader, data)
+	if err != nil {
+		return jobManifest, fmt.Errorf("Error reading 'job.MF'")
+	}
+
+	err = yaml.Unmarshal(data, &jobManifest)
+	if err != nil {
+		return jobManifest, fmt.Errorf("Error unmarshaling 'job.MF'")
+	}
+
+	return jobManifest, nil
+
+}
+
+func extractJobManifest(header *tar.Header, reader *tar.Reader) (ReleaseJobManifest, error) {
+	jobManifest := ReleaseJobManifest{}
+
+	data := make([]byte, header.Size)
+	_, err := io.ReadFull(reader, data)
+	if err != nil {
+		return jobManifest, fmt.Errorf("Error reading '%s'", header.Name)
+	}
+
+	buffer := bytes.NewBuffer(data)
+	gzipReader, err := gzip.NewReader(buffer)
+	if err != nil {
+		return jobManifest, err
+	}
+
+	tarReader := tar.NewReader(gzipReader)
+	for true {
+		tarHeader, err := tarReader.Next()
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return jobManifest, err
+		}
+
+		if tarHeader.Typeflag != tar.TypeReg {
+			continue
+		}
+
+		if !strings.HasPrefix(tarHeader.Name, "./job.MF") {
+			continue
+		}
+
+		jobManifest, err := unmarshalJobManifest(tarHeader, tarReader)
+		if err != nil {
+			return jobManifest, err
+		}
+
+		return jobManifest, nil
+
+	}
+
+	return jobManifest, fmt.Errorf("Did not find 'job.MF' file instead '%s'", header.Name)
+}
+
 func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 	releaseFile, err := os.Open(releasePath)
 	if err != nil {
@@ -54,17 +120,17 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 	}
 	defer releaseFile.Close()
 
-	releaseFileGZip, err := gzip.NewReader(releaseFile)
+	gzipReader, err := gzip.NewReader(releaseFile)
 	if err != nil {
 		return nil, err
 	}
 
-	tarReader := tar.NewReader(releaseFileGZip)
+	tarReader := tar.NewReader(gzipReader)
 
 	releaseMetadata := &ReleaseMetadata{}
 
 	for true {
-		header, err := tarReader.Next()
+		tarHeader, err := tarReader.Next()
 
 		if err == io.EOF {
 			break
@@ -74,12 +140,12 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 			return nil, err
 		}
 
-		if header.Typeflag != tar.TypeReg {
+		if tarHeader.Typeflag != tar.TypeReg {
 			continue
 		}
 
-		if header.Name == "./release.MF" {
-			releaseManifest, err := extractReleaseManifest(header, tarReader)
+		if tarHeader.Name == "./release.MF" {
+			releaseManifest, err := unmarshalReleaseManifest(tarHeader, tarReader)
 			if err != nil {
 				return nil, err
 			}
@@ -87,20 +153,26 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 			releaseMetadata.Manifest = releaseManifest
 		}
 
-		if strings.HasPrefix(header.Name, "./packages") {
+		if strings.HasPrefix(tarHeader.Name, "./packages") {
 			packageFile := ReleaseFile{
-				Path: header.Name,
-				Size: header.Size,
+				Path: tarHeader.Name,
+				Size: tarHeader.Size,
 			}
 			releaseMetadata.PackageFiles = append(releaseMetadata.PackageFiles, packageFile)
 		}
 
-		if strings.HasPrefix(header.Name, "./jobs") {
+		if strings.HasPrefix(tarHeader.Name, "./jobs") {
 			jobFile := ReleaseFile{
-				Path: header.Name,
-				Size: header.Size,
+				Path: tarHeader.Name,
+				Size: tarHeader.Size,
 			}
 			releaseMetadata.JobFiles = append(releaseMetadata.JobFiles, jobFile)
+
+			releaseJobManifest, err := extractJobManifest(tarHeader, tarReader)
+			if err != nil {
+				return nil, err
+			}
+			releaseMetadata.JobManifests = append(releaseMetadata.JobManifests, releaseJobManifest)
 		}
 	}
 
