@@ -8,28 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 )
-
-func main() {
-	filePath := flag.String("filePath", "", "Release path to explore")
-	flag.Parse()
-
-	if _, err := os.Stat(*filePath); os.IsNotExist(err) {
-		panic(fmt.Errorf("File '%s' does not exist!", *filePath))
-	}
-
-	releaseMetadata, err := exploreReleaseMetadata(*filePath)
-	if err != nil {
-		panic(err)
-	}
-
-	releaseYAML, err := yaml.Marshal(releaseMetadata)
-
-	fmt.Println(string(releaseYAML))
-}
 
 func unmarshalReleaseManifest(header *tar.Header, reader *tar.Reader) (ReleaseManifest, error) {
 	releaseManifest := ReleaseManifest{}
@@ -179,6 +162,33 @@ func exploreReleaseMetadata(releasePath string) (*ReleaseMetadata, error) {
 	return releaseMetadata, nil
 }
 
+func main() {
+	filePath := flag.String("filePath", "", "Release path to explore")
+	flag.Parse()
+
+	if _, err := os.Stat(*filePath); os.IsNotExist(err) {
+		panic(fmt.Errorf("File '%s' does not exist!", *filePath))
+	}
+
+	releaseMetadata, err := exploreReleaseMetadata(*filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	releaseYAML, err := yaml.Marshal(releaseMetadata)
+
+	fmt.Println(string(releaseYAML))
+
+	for _, jrf := range releaseMetadata.JobFiles {
+		fmt.Printf("%s\n", jrf.Name())
+		fmt.Printf("%s\n", jrf.HumanReadableSize())
+	}
+	for _, prf := range releaseMetadata.PackageFiles {
+		fmt.Printf("%s\n", prf.Name())
+		fmt.Printf("%s\n", prf.HumanReadableSize())
+	}
+}
+
 func (rm ReleaseManifest) printPackages() {
 	fmt.Printf("digraph packages {\n")
 	var allNodes []string
@@ -231,4 +241,25 @@ type ReleaseJobManifest struct {
 type ReleaseFile struct {
 	Path string
 	Size int64
+}
+
+func (rf ReleaseFile) Name() string {
+	filename := path.Base(rf.Path)
+	return strings.TrimSuffix(filename, path.Ext(filename))
+}
+
+func (rf ReleaseFile) HumanReadableSize() string {
+	sizeInBytes := float64(rf.Size)
+	sizeInKiloBytes := sizeInBytes / 1024
+	sizeInMegaBytes := sizeInKiloBytes / 1024
+
+	if sizeInKiloBytes < 1 {
+		return fmt.Sprintf("%0.2f B", sizeInBytes)
+	}
+
+	if sizeInMegaBytes < 1 {
+		return fmt.Sprintf("%0.2f KB", sizeInKiloBytes)
+	}
+
+	return fmt.Sprintf("%0.2f MB", sizeInMegaBytes)
 }
