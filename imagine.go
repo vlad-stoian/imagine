@@ -167,7 +167,7 @@ func exploreReleaseMetadata(releasePath string) (ReleaseMetadata, error) {
 func createSubGraph(graph *gographviz.Escape, subGraphName string, releaseFiles []ReleaseFile) {
 	defaultNodeAttrs := map[string]string{
 		"shape": "record",
-		"style": "rounded",
+		// "style": "rounded",
 	}
 
 	defaultSubGraphAttrs := map[string]string{
@@ -181,10 +181,9 @@ func createSubGraph(graph *gographviz.Escape, subGraphName string, releaseFiles 
 	_ = graph.AddSubGraph(graph.Name, clusterName, defaultSubGraphAttrs)
 
 	for _, releaseFile := range releaseFiles {
-		_ = graph.AddNode(clusterName, releaseFile.Name(), defaultNodeAttrs)
-		_ = graph.AddNode(clusterName, releaseFile.Name(), map[string]string{
-			"label": fmt.Sprintf("%s | %s", releaseFile.Name(), releaseFile.HumanReadableSize()),
-		})
+		defaultNodeAttrs["label"] = fmt.Sprintf("{%s | %s}", releaseFile.Name(), releaseFile.HumanReadableSize())
+
+		_ = graph.AddNode(clusterName, subGraphName+"-"+releaseFile.Name(), defaultNodeAttrs)
 	}
 }
 
@@ -196,13 +195,39 @@ func createCrazyGraph(releaseMetadata ReleaseMetadata) string {
 	// 	"nodeshape": "record",
 	// }
 
+	defaultEdgeAttrs := map[string]string{
+		"arrowhead": "vee",
+		"tailport":  "e",
+		"headport":  "_w",
+	}
+
 	graph := gographviz.NewEscape()
+	_ = graph.SetDir(true)
 	_ = graph.SetName(releaseName)
 	_ = graph.AddAttr(releaseName, "rankdir", "LR")
-	_ = graph.AddAttr(releaseName, "shape", "record")
+	_ = graph.AddAttr(releaseName, "nodesep", "0.5")
+	_ = graph.AddAttr(releaseName, "ranksep", "2")
 
 	createSubGraph(graph, "packages", releaseMetadata.PackageFiles)
 	createSubGraph(graph, "jobs", releaseMetadata.JobFiles)
+
+	_ = graph.AddSubGraph(releaseName, "packages_on_packages", nil)
+	_ = graph.AddSubGraph(releaseName, "jobs_on_packages", nil)
+
+	for _, jobManifest := range releaseMetadata.JobManifests {
+		for _, pkg := range jobManifest.Packages {
+			_ = graph.AddEdge("jobs-"+jobManifest.Name, "packages-"+pkg, true, defaultEdgeAttrs)
+		}
+	}
+
+	for _, pkg := range releaseMetadata.Manifest.Packages {
+		for _, pkgDep := range pkg.Dependencies {
+			defaultEdgeAttrs["headport"] = "e"
+			defaultEdgeAttrs["constraint"] = "false"
+
+			_ = graph.AddEdge("packages-"+pkg.Name, "packages-"+pkgDep, true, defaultEdgeAttrs)
+		}
+	}
 
 	return graph.String()
 }
