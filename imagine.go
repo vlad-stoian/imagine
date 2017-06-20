@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/awalterschulze/gographviz"
+	"github.com/vlad-stoian/imagine/graphviz"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -164,27 +165,27 @@ func exploreReleaseMetadata(releasePath string) (ReleaseMetadata, error) {
 	return releaseMetadata, nil
 }
 
-func createSubGraph(graph *gographviz.Escape, subGraphName string, releaseFiles []ReleaseFile) {
-	defaultNodeAttrs := map[string]string{
-		"shape": "record",
-		// "style": "rounded",
-	}
+var attributes graphviz.Attributes
 
-	defaultSubGraphAttrs := map[string]string{
-		"rank":  "same",
-		"label": subGraphName,
-		"color": "blue",
-		"style": "rounded",
-	}
+func createSubGraph(graph *gographviz.Escape, subGraphName string, releaseFiles []ReleaseFile) {
 
 	clusterName := fmt.Sprintf("cluster_%s", subGraphName)
-	_ = graph.AddSubGraph(graph.Name, clusterName, defaultSubGraphAttrs)
+	sameRankSubGraphName := fmt.Sprintf("same_rank_%s", subGraphName)
+
+	_ = graph.AddSubGraph(graph.Name, clusterName, attributes.GetClusterAttrsWithName(subGraphName))
+	_ = graph.AddSubGraph(clusterName, sameRankSubGraphName, attributes.GetSubGraphAttrs())
 
 	for _, releaseFile := range releaseFiles {
-		defaultNodeAttrs["label"] = fmt.Sprintf("{%s | %s}", releaseFile.Name(), releaseFile.HumanReadableSize())
-
-		_ = graph.AddNode(clusterName, subGraphName+"-"+releaseFile.Name(), defaultNodeAttrs)
+		_ = graph.AddNode(sameRankSubGraphName, subGraphName+"-"+releaseFile.Name(), attributes.GetNodeAttrsWithNameAndSize(releaseFile.Name(), releaseFile.HumanReadableSize()))
 	}
+}
+
+func JobPrefixedName(name string) string {
+	return fmt.Sprintf("jobs-%s", name)
+}
+
+func PackagePrefixedName(name string) string {
+	return fmt.Sprintf("packages-%s", name)
 }
 
 func createCrazyGraph(releaseMetadata ReleaseMetadata) string {
@@ -194,12 +195,6 @@ func createCrazyGraph(releaseMetadata ReleaseMetadata) string {
 	// 	"rankdir":   "LR",
 	// 	"nodeshape": "record",
 	// }
-
-	defaultEdgeAttrs := map[string]string{
-		"arrowhead": "vee",
-		"tailport":  "e",
-		"headport":  "_w",
-	}
 
 	graph := gographviz.NewEscape()
 	_ = graph.SetDir(true)
@@ -211,21 +206,15 @@ func createCrazyGraph(releaseMetadata ReleaseMetadata) string {
 	createSubGraph(graph, "packages", releaseMetadata.PackageFiles)
 	createSubGraph(graph, "jobs", releaseMetadata.JobFiles)
 
-	_ = graph.AddSubGraph(releaseName, "packages_on_packages", nil)
-	_ = graph.AddSubGraph(releaseName, "jobs_on_packages", nil)
-
 	for _, jobManifest := range releaseMetadata.JobManifests {
 		for _, pkg := range jobManifest.Packages {
-			_ = graph.AddEdge("jobs-"+jobManifest.Name, "packages-"+pkg, true, defaultEdgeAttrs)
+			_ = graph.AddEdge(JobPrefixedName(jobManifest.Name), PackagePrefixedName(pkg), true, attributes.GetEdgeAttrsJobToPackage())
 		}
 	}
 
 	for _, pkg := range releaseMetadata.Manifest.Packages {
 		for _, pkgDep := range pkg.Dependencies {
-			defaultEdgeAttrs["headport"] = "e"
-			defaultEdgeAttrs["constraint"] = "false"
-
-			_ = graph.AddEdge("packages-"+pkg.Name, "packages-"+pkgDep, true, defaultEdgeAttrs)
+			_ = graph.AddEdge(PackagePrefixedName(pkg.Name), PackagePrefixedName(pkgDep), true, attributes.GetEdgeAttrsPackageToPackage())
 		}
 	}
 
