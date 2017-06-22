@@ -63,7 +63,6 @@ func (s Attributes) GetEdgeAttrsPackageToPackage() map[string]string {
 	edgeAttrs := s.GetEdgeAttrsJobToPackage()
 	edgeAttrs["headport"] = "_e"
 	edgeAttrs["color"] = "red"
-	edgeAttrs["constraint"] = "true"
 
 	return edgeAttrs
 }
