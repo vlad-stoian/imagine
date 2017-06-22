@@ -2,6 +2,18 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/alecthomas/template"
+  packages = [".","parse"]
+  revision = "a0175ee3bccc567396460bf5acd36800cb10c49c"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/alecthomas/units"
+  packages = ["."]
+  revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
+
+[[projects]]
   name = "github.com/awalterschulze/gographviz"
   packages = [".","ast","internal/errors","internal/lexer","internal/parser","internal/token"]
   revision = "c84395e536e1a1199093a4e6253d1bee99e4cd2a"
@@ -26,6 +38,12 @@
   revision = "fb4cac33e3196ff7f507ab9b2d2a44b0142f5b5a"
 
 [[projects]]
+  name = "gopkg.in/alecthomas/kingpin.v2"
+  packages = ["."]
+  revision = "7f0871f2e17818990e4eed73f9b5c2f429501228"
+  version = "v2.2.4"
+
+[[projects]]
   branch = "v2"
   name = "gopkg.in/yaml.v2"
   packages = ["."]
@@ -34,6 +52,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "562452a6a9131df3c2b08b9a4432060efb70d09ebaa19ea954f7f67b87bd22fa"
+  inputs-digest = "75d4e2dff4c66e3150da7c51ed959ffc17f95bdc1c0a3f63fce286e663124980"
   solver-name = "gps-cdcl"
   solver-version = 1

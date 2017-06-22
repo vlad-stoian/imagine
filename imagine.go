@@ -1,13 +1,14 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/vlad-stoian/imagine/bosh"
 	"github.com/vlad-stoian/imagine/graphviz"
+
+	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 var attributes graphviz.Attributes
@@ -60,15 +61,19 @@ func createCrazyGraph(releaseMetadata bosh.ReleaseMetadata) string {
 	return graph.String()
 }
 
-func main() {
-	filePath := flag.String("filePath", "", "Release path to explore")
-	flag.Parse()
+var (
+	verbose     = kingpin.Flag("verbose", "Verbose mode").Short('v').Bool()
+	releasePath = kingpin.Arg("release-path", "Path of the release file").Required().String()
+)
 
-	if _, err := os.Stat(*filePath); os.IsNotExist(err) {
-		panic(fmt.Errorf("File '%s' does not exist!", *filePath))
+func main() {
+	kingpin.Parse()
+
+	if _, err := os.Stat(*releasePath); os.IsNotExist(err) {
+		panic(fmt.Errorf("File '%s' does not exist!", *releasePath))
 	}
 
-	releaseMetadata, err := bosh.ExploreReleaseMetadata(*filePath)
+	releaseMetadata, err := bosh.ExploreReleaseMetadata(*releasePath)
 	if err != nil {
 		panic(err)
 	}
